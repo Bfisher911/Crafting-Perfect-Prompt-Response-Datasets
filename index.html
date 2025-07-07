@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crafting Perfect Prompt–Response Datasets</title>
+    
+    <!-- Tailwind CSS for rapid, responsive styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- A lightweight tokenizer library (gpt-tokenizer) -->
+    <script src="https://cdn.jsdelivr.net/npm/gpt-tokenizer@1.3.1/dist/gpt-tokenizer.browser.min.js"></script>
+
+    <!-- Google Fonts: Inter for clean typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        /* --- THEME & CUSTOM STYLES --- */
+        /* Instructors can easily tweak these CSS variables to change the site's color theme. */
+        :root {
+            --bg-primary: #f8fafc; /* Light gray background */
+            --bg-secondary: #ffffff; /* White for cards/modals */
+            --text-primary: #1e293b; /* Dark slate for main text */
+            --text-secondary: #475569; /* Lighter slate for subtitles */
+            --accent-color: #4f46e5; /* Indigo for buttons and highlights */
+            --accent-hover: #4338ca;
+            --border-color: #e2e8f0;
+            --success-color: #22c55e; /* Green */
+            --warning-color: #f59e0b; /* Amber */
+            --error-color: #ef4444;   /* Red */
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+        }
+
+        /* --- Custom class for smooth transitions --- */
+        .transition-all-smooth {
+            transition: all 0.3s ease-in-out;
+        }
+
+        /* --- Traffic Light Indicator Styles --- */
+        .traffic-light {
+            width: 1.25rem;
+            height: 1.25rem;
+            border-radius: 9999px;
+            background-color: var(--border-color); /* Default gray */
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .traffic-light.valid { background-color: var(--success-color); }
+        .traffic-light.warning { background-color: var(--warning-color); }
+        .traffic-light.invalid { background-color: var(--error-color); }
+
+        /* --- Animated Counter Styles --- */
+        .counter-value {
+            font-weight: 700;
+            color: var(--accent-color);
+        }
+
+        /* --- Glossary Pop-up Styles --- */
+        .glossary-term {
+            border-bottom: 2px dotted var(--accent-color);
+            cursor: pointer;
+            position: relative;
+        }
+        .glossary-popup {
+            display: none; /* Hidden by default */
+            position: absolute;
+            bottom: 125%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 280px;
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            padding: 1rem;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
+            z-index: 50;
+        }
+        .glossary-term:hover .glossary-popup,
+        .glossary-term:focus-within .glossary-popup {
+            display: block;
+        }
+
+        /* --- Syntax Highlighting for JSON Preview --- */
+        .json-key { color: #9333ea; } /* Purple */
+        .json-string { color: #16a34a; } /* Green */
+        .json-number { color: #db2777; } /* Pink */
+        .json-brace { color: var(--text-primary); }
+        
+        /* --- Accessibility: Focus visible styles --- */
+        :focus-visible {
+            outline: 2px solid var(--accent-color);
+            outline-offset: 2px;
+            border-radius: 0.25rem;
+        }
+    </style>
+</head>
+<body class="p-4 sm:p-6 lg:p-8">
+
+    <div class="max-w-7xl mx-auto">
+        <!-- Header Section -->
+        <header class="text-center mb-8">
+            <h1 class="text-3xl sm:text-4xl font-bold text-gray-800">Crafting Perfect Prompt–Response Datasets</h1>
+            <p class="mt-2 text-lg text-gray-600">An interactive tool to format, validate, and clean your AI training data.</p>
+        </header>
+
+        <!-- Main Content Grid -->
+        <main class="grid grid-cols-1 lg:grid-cols-5 gap-8">
+
+            <!-- Left Column: Controls & Tools -->
+            <div class="lg:col-span-2 space-y-8">
+                
+                <!-- 1. Upload & Validate Card -->
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <h2 class="text-xl font-semibold mb-4">1. Upload & Validate</h2>
+                    <p class="text-sm text-gray-500 mb-4">Upload a JSONL file. The schema requires each line to be a JSON object with `instruction` and `response` keys.</p>
+                    <input type="file" id="fileInput" accept=".jsonl" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" aria-label="Upload JSONL file">
+                    
+                    <div class="mt-6 flex items-center justify-between">
+                        <button id="validateBtn" disabled class="px-5 py-2.5 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 focus:ring-4 focus:ring-indigo-300 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all-smooth" aria-label="Validate dataset">Validate</button>
+                        <div class="flex items-center space-x-3">
+                            <span class="text-sm font-medium text-gray-600">Status:</span>
+                            <div id="trafficLight" class="traffic-light transition-all-smooth" aria-live="polite"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. Cleaner Toolkit Card -->
+                <div id="cleaner-card" class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 opacity-50 pointer-events-none transition-all-smooth">
+                    <h2 class="text-xl font-semibold mb-4">2. Cleaner Toolkit</h2>
+                    <p class="text-sm text-gray-500 mb-4">Apply common fixes to your dataset. The cleaned file will be available for download.</p>
+                    <div class="space-y-3">
+                        <label class="flex items-center">
+                            <input type="checkbox" id="trimWhitespace" class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                            <span class="ml-3 text-sm text-gray-700">Trim leading/trailing whitespace</span>
+                        </label>
+                        <label class="flex items-center">
+                            <input type="checkbox" id="convertSmartQuotes" class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                            <span class="ml-3 text-sm text-gray-700">Convert smart quotes to standard quotes</span>
+                        </label>
+                        <label class="flex items-center">
+                            <input type="checkbox" id="removeHtmlTags" class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                            <span class="ml-3 text-sm text-gray-700">Remove HTML tags</span>
+                        </label>
+                    </div>
+                    <button id="cleanAndDownloadBtn" class="mt-6 w-full px-5 py-2.5 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 focus:ring-4 focus:ring-green-300 transition-all-smooth" aria-label="Clean and download dataset">Clean & Download</button>
+                </div>
+                
+                <!-- 3. Live Builder Card -->
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <h2 class="text-xl font-semibold mb-1">3. Live Builder</h2>
+                    <p class="text-sm text-gray-500 mb-4">Manually create and add new prompt-response pairs.</p>
+                    <div class="space-y-4">
+                        <div>
+                            <label for="instructionInput" class="block text-sm font-medium text-gray-700">Instruction</label>
+                            <textarea id="instructionInput" rows="4" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" placeholder="e.g., Explain the theory of relativity in simple terms."></textarea>
+                            <p class="text-right text-xs text-gray-500 mt-1">Tokens: <span id="instructionTokenCount">0</span></p>
+                        </div>
+                        <div>
+                            <label for="responseInput" class="block text-sm font-medium text-gray-700">Response</label>
+                            <textarea id="responseInput" rows="6" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" placeholder="e.g., Imagine time and space are like a stretchy fabric..."></textarea>
+                            <p class="text-right text-xs text-gray-500 mt-1">Tokens: <span id="responseTokenCount">0</span></p>
+                        </div>
+                    </div>
+                    <button id="addPairBtn" class="mt-4 w-full px-5 py-2.5 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 focus:ring-4 focus:ring-indigo-300 transition-all-smooth" aria-label="Add prompt-response pair to preview">Add Pair to Preview</button>
+                </div>
+
+            </div>
+
+            <!-- Right Column: Previews & Stats -->
+            <div class="lg:col-span-3 space-y-8">
+
+                <!-- Preview & Stats Card -->
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <h2 class="text-xl font-semibold mb-4">Dataset Preview & Statistics</h2>
+                    
+                    <!-- Token Counter Section -->
+                    <div id="stats-panel" class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 text-center opacity-50 transition-all-smooth">
+                        <div class="bg-indigo-50 p-4 rounded-lg">
+                            <p class="text-sm text-indigo-800 font-medium">Total Records</p>
+                            <p id="totalRecords" class="text-2xl counter-value">0</p>
+                        </div>
+                        <div class="bg-indigo-50 p-4 rounded-lg">
+                            <p class="text-sm text-indigo-800 font-medium">Total <span class="glossary-term" tabindex="0">Tokens<span class="glossary-popup">A 'token' is a piece of a word used by language models. For example, 'tokenizer' might be split into 'token' and 'izer'.<button class="absolute top-1 right-2 text-gray-500 hover:text-gray-800" onclick="this.parentElement.style.display='none'">&times;</button></span></span></p>
+                            <p id="totalTokens" class="text-2xl counter-value">0</p>
+                        </div>
+                        <div class="bg-indigo-50 p-4 rounded-lg">
+                            <p class="text-sm text-indigo-800 font-medium">Avg Tokens/Pair</p>
+                            <p id="avgTokens" class="text-2xl counter-value">0</p>
+                        </div>
+                    </div>
+
+                    <!-- JSONL Preview Area -->
+                    <h3 class="text-lg font-semibold mb-2">JSONL Preview</h3>
+                    <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 h-96 overflow-y-auto">
+                        <pre><code id="jsonPreview" class="text-sm leading-relaxed">Upload a file or use the live builder to see a preview.</code></pre>
+                    </div>
+                </div>
+            </div>
+        </main>
+        
+        <!-- Footer with Glossary -->
+        <footer class="mt-12 text-center text-sm text-gray-500">
+            <p>Key Terms: 
+                <span class="glossary-term" tabindex="0">Schema<span class="glossary-popup">The 'schema' is the required structure for your data. Here, it's a JSON object on each line with "instruction" and "response" keys.<button class="absolute top-1 right-2 text-gray-500 hover:text-gray-800" onclick="this.parentElement.style.display='none'">&times;</button></span></span> | 
+                <span class="glossary-term" tabindex="0">Token<span class="glossary-popup">A 'token' is a piece of a word used by language models. For example, 'tokenizer' might be split into 'token' and 'izer'.<button class="absolute top-1 right-2 text-gray-500 hover:text-gray-800" onclick="this.parentElement.style.display='none'">&times;</button></span></span> | 
+                <span class="glossary-term" tabindex="0">Leakage<span class="glossary-popup">'Data leakage' happens when information from the response accidentally appears in the instruction, making the model's task too easy and unrealistic.<button class="absolute top-1 right-2 text-gray-500 hover:text-gray-800" onclick="this.parentElement.style.display='none'">&times;</button></span></span>
+            </p>
+            <p class="mt-2">Built with ❤️ for effective AI development.</p>
+        </footer>
+    </div>
+
+    <!-- Validation Error Modal -->
+    <div id="errorModal" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center p-4 z-50 hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div class="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] flex flex-col">
+            <div class="p-6 border-b border-gray-200 flex justify-between items-center">
+                <h2 id="modal-title" class="text-xl font-semibold">Validation Report</h2>
+                <button id="closeModalBtn" class="text-gray-400 hover:text-gray-700" aria-label="Close validation report">&times;</button>
+            </div>
+            <div id="errorList" class="p-6 overflow-y-auto">
+                <!-- Errors will be populated here by JavaScript -->
+            </div>
+            <div class="p-4 bg-gray-50 border-t border-gray-200 text-right">
+                <button id="closeModalBtn2" class="px-4 py-2 bg-gray-200 text-gray-800 font-semibold rounded-lg hover:bg-gray-300">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    /**
+     * FIX: This script now uses a polling mechanism to ensure the external
+     * `gpt-tokenizer` library is loaded before the application logic runs.
+     * This prevents race conditions and the "gptTokenizer is not defined" error.
+     */
+
+    // This function contains the entire application setup and logic.
+    // It will only be called once the gpt-tokenizer library is confirmed to be loaded.
+    function initializeApp() {
+        // --- ELEMENT SELECTORS --- //
+        const fileInput = document.getElementById('fileInput');
+        const validateBtn = document.getElementById('validateBtn');
+        const trafficLight = document.getElementById('trafficLight');
+        const jsonPreview = document.getElementById('jsonPreview');
+        
+        const cleanerCard = document.getElementById('cleaner-card');
+        const cleanAndDownloadBtn = document.getElementById('cleanAndDownloadBtn');
+        const statsPanel = document.getElementById('stats-panel');
+
+        const totalRecordsEl = document.getElementById('totalRecords');
+        const totalTokensEl = document.getElementById('totalTokens');
+        const avgTokensEl = document.getElementById('avgTokens');
+
+        const errorModal = document.getElementById('errorModal');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        const closeModalBtn2 = document.getElementById('closeModalBtn2');
+        const errorList = document.getElementById('errorList');
+
+        const instructionInput = document.getElementById('instructionInput');
+        const responseInput = document.getElementById('responseInput');
+        const instructionTokenCount = document.getElementById('instructionTokenCount');
+        const responseTokenCount = document.getElementById('responseTokenCount');
+        const addPairBtn = document.getElementById('addPairBtn');
+        
+        // --- STATE MANAGEMENT --- //
+        let state = {
+            rawData: null,
+            dataset: [],
+            fileName: 'dataset.jsonl',
+            validationErrors: [],
+        };
+
+        // --- TOKENIZER INITIALIZATION --- //
+        // This is safe to call now because initializeApp() is only run after the library is loaded.
+        const tokenizer = gptTokenizer.getTokenizer();
+
+        // --- EVENT LISTENERS --- //
+        fileInput.addEventListener('change', handleFileSelect);
+        validateBtn.addEventListener('click', runValidationAndAnalysis);
+        cleanAndDownloadBtn.addEventListener('click', handleCleanAndDownload);
+        closeModalBtn.addEventListener('click', closeModal);
+        closeModalBtn2.addEventListener('click', closeModal);
+        errorModal.addEventListener('click', (e) => {
+            if (e.target === errorModal) closeModal();
+        });
+        instructionInput.addEventListener('input', () => updateLiveTokenCount(instructionInput, instructionTokenCount));
+        responseInput.addEventListener('input', () => updateLiveTokenCount(responseInput, responseTokenCount));
+        addPairBtn.addEventListener('click', handleAddPair);
+
+        // --- CORE FUNCTIONS --- //
+
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            state.fileName = file.name;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                state.rawData = event.target.result;
+                state.dataset = parseJsonl(state.rawData);
+                updatePreview(state.dataset.slice(0, 3));
+                validateBtn.disabled = false;
+                resetUI();
+            };
+            reader.readAsText(file);
+        }
+        
+        function parseJsonl(text) {
+            if (!text) return [];
+            return text.split('\n')
+                .filter(line => line.trim() !== '')
+                .map(line => {
+                    try {
+                        return JSON.parse(line);
+                    } catch (e) {
+                        return { _parseError: true, line };
+                    }
+                });
+        }
+        
+        function updatePreview(data) {
+            if (data.length === 0) {
+                jsonPreview.textContent = 'No data to display.';
+                return;
+            }
+            jsonPreview.innerHTML = data.map(item => syntaxHighlight(item)).join('\n');
+        }
+
+        function syntaxHighlight(json) {
+            let jsonString = JSON.stringify(json, null, 2);
+            jsonString = jsonString.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return jsonString.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, (match) => {
+                let cls = 'json-number';
+                if (/^"/.test(match)) {
+                    cls = /:$/.test(match) ? 'json-key' : 'json-string';
+                }
+                return `<span class="${cls}">${match}</span>`;
+            });
+        }
+
+        function runValidationAndAnalysis() {
+            validateSchema();
+            displayValidationResult();
+            
+            const errors = state.validationErrors.filter(e => e.type === 'error');
+            if (errors.length === 0) {
+                enableTools();
+                calculateAndDisplayTokens();
+            }
+        }
+
+        function validateSchema() {
+            state.validationErrors = [];
+            state.dataset.forEach((item, index) => {
+                const lineNumber = index + 1;
+                if (item._parseError) {
+                    state.validationErrors.push({ line: lineNumber, type: 'error', message: 'Invalid JSON format.' });
+                    return;
+                }
+                if (typeof item.instruction !== 'string') {
+                    state.validationErrors.push({ line: lineNumber, type: 'error', message: 'Missing or non-string "instruction" key.' });
+                }
+                if (typeof item.response !== 'string') {
+                    state.validationErrors.push({ line: lineNumber, type: 'error', message: 'Missing or non-string "response" key.' });
+                }
+                if (item.instruction && item.instruction.trim() === '') {
+                     state.validationErrors.push({ line: lineNumber, type: 'warning', message: '"instruction" is empty or only whitespace.' });
+                }
+                if (item.response && item.response.trim() === '') {
+                     state.validationErrors.push({ line: lineNumber, type: 'warning', message: '"response" is empty or only whitespace.' });
+                }
+            });
+        }
+        
+        function displayValidationResult() {
+            trafficLight.className = 'traffic-light transition-all-smooth';
+            
+            const errors = state.validationErrors.filter(e => e.type === 'error');
+            const warnings = state.validationErrors.filter(e => e.type === 'warning');
+
+            if (errors.length > 0) {
+                trafficLight.classList.add('invalid');
+                showModal('error', errors, warnings);
+            } else if (warnings.length > 0) {
+                trafficLight.classList.add('warning');
+                showModal('warning', errors, warnings);
+            } else {
+                trafficLight.classList.add('valid');
+                showModal('success');
+            }
+        }
+        
+        function showModal(status, errors = [], warnings = []) {
+            errorList.innerHTML = '';
+            
+            if (status === 'success') {
+                errorList.innerHTML = '<div class="p-4 bg-green-100 text-green-800 rounded-lg"><h3 class="font-bold">Validation Successful!</h3><p>Your dataset schema is valid. You can now use the cleaner toolkit and view token stats.</p></div>';
+            } else {
+                if (errors.length > 0) {
+                    const errorHtml = `<h3 class="font-bold text-red-700 mb-2">Errors (${errors.length}):</h3><ul class="list-disc list-inside space-y-1 text-red-700">${errors.map(e => `<li>Line ${e.line}: ${e.message}</li>`).join('')}</ul>`;
+                    errorList.insertAdjacentHTML('beforeend', errorHtml);
+                }
+                if (warnings.length > 0) {
+                    const warningHtml = `<h3 class="font-bold text-amber-700 mt-4 mb-2">Warnings (${warnings.length}):</h3><ul class="list-disc list-inside space-y-1 text-amber-700">${warnings.map(w => `<li>Line ${w.line}: ${w.message}</li>`).join('')}</ul>`;
+                    errorList.insertAdjacentHTML('beforeend', warningHtml);
+                }
+            }
+            
+            errorModal.classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeModal() {
+            errorModal.classList.add('hidden');
+            document.body.style.overflow = '';
+        }
+
+        function enableTools() {
+            cleanerCard.classList.remove('opacity-50', 'pointer-events-none');
+            statsPanel.classList.remove('opacity-50');
+        }
+
+        function resetUI() {
+            cleanerCard.classList.add('opacity-50', 'pointer-events-none');
+            statsPanel.classList.add('opacity-50');
+            trafficLight.className = 'traffic-light transition-all-smooth';
+            animateValue(totalRecordsEl, 0, 0, 1);
+            animateValue(totalTokensEl, 0, 0, 1);
+            animateValue(avgTokensEl, 0, 0, 1);
+        }
+
+        function calculateAndDisplayTokens() {
+            let totalTokens = 0;
+            const totalRecords = state.dataset.length;
+
+            state.dataset.forEach(item => {
+                const instructionTokens = tokenizer.encode(item.instruction || '').length;
+                const responseTokens = tokenizer.encode(item.response || '').length;
+                totalTokens += instructionTokens + responseTokens;
+            });
+
+            const avgTokens = totalRecords > 0 ? Math.round(totalTokens / totalRecords) : 0;
+
+            animateValue(totalRecordsEl, 0, totalRecords, 500);
+            animateValue(totalTokensEl, 0, totalTokens, 1000);
+            animateValue(avgTokensEl, 0, avgTokens, 1000);
+        }
+
+        function animateValue(el, start, end, duration) {
+            let startTimestamp = null;
+            const step = (timestamp) => {
+                if (!startTimestamp) startTimestamp = timestamp;
+                const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+                el.textContent = Math.floor(progress * (end - start) + start).toLocaleString();
+                if (progress < 1) {
+                    window.requestAnimationFrame(step);
+                }
+            };
+            window.requestAnimationFrame(step);
+        }
+
+        function handleCleanAndDownload() {
+            const cleaners = [];
+            if (document.getElementById('trimWhitespace').checked) cleaners.push(trimWhitespace);
+            if (document.getElementById('convertSmartQuotes').checked) cleaners.push(convertSmartQuotes);
+            if (document.getElementById('removeHtmlTags').checked) cleaners.push(removeHtmlTags);
+
+            if (cleaners.length === 0) {
+                alert('Please select at least one cleaning option.');
+                return;
+            }
+
+            let cleanedDataset = JSON.parse(JSON.stringify(state.dataset));
+
+            cleanedDataset.forEach(item => {
+                cleaners.forEach(cleaner => {
+                    if (item.instruction) item.instruction = cleaner(item.instruction);
+                    if (item.response) item.response = cleaner(item.response);
+                });
+            });
+            
+            const cleanedJsonl = cleanedDataset.map(item => JSON.stringify(item)).join('\n');
+            downloadFile(cleanedJsonl, `cleaned_${state.fileName}`);
+        }
+        
+        const trimWhitespace = (str) => str.trim();
+        const convertSmartQuotes = (str) => str.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+        const removeHtmlTags = (str) => {
+            const div = document.createElement('div');
+            div.innerHTML = str;
+            return div.textContent || div.innerText || '';
+        };
+        
+        function downloadFile(text, filename) {
+            const blob = new Blob([text], { type: 'application/jsonl' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+        
+        function updateLiveTokenCount(inputEl, countEl) {
+            const text = inputEl.value;
+            const tokenCount = text ? tokenizer.encode(text).length : 0;
+            countEl.textContent = tokenCount;
+        }
+        
+        function handleAddPair() {
+            const instruction = instructionInput.value;
+            const response = responseInput.value;
+            
+            if (!instruction || !response) {
+                alert('Both instruction and response fields are required.');
+                return;
+            }
+            
+            const newPair = { instruction, response };
+            
+            state.dataset.push(newPair);
+            
+            const newJsonlLine = JSON.stringify(newPair);
+            state.rawData = state.rawData ? `${state.rawData}\n${newJsonlLine}` : newJsonlLine;
+            
+            updatePreview(state.dataset);
+            
+            instructionInput.value = '';
+            responseInput.value = '';
+            updateLiveTokenCount(instructionInput, instructionTokenCount);
+            updateLiveTokenCount(responseInput, responseTokenCount);
+            
+            if (trafficLight.classList.contains('valid') || trafficLight.classList.contains('warning')) {
+                runValidationAndAnalysis();
+            } else {
+                validateBtn.disabled = false;
+            }
+        }
+    }
+
+    // This function polls to check if the gpt-tokenizer library is loaded.
+    function checkAndLaunch() {
+        if (typeof gptTokenizer !== 'undefined') {
+            // If the library is available, initialize the application.
+            initializeApp();
+        } else {
+            // If not, wait 100 milliseconds and check again.
+            setTimeout(checkAndLaunch, 100);
+        }
+    }
+
+    // Start the checking process.
+    checkAndLaunch();
+    </script>
+</body>
+</html>
